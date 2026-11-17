@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\CatalogoController;
 use App\Http\Controllers\Api\SecretariaController;
 use App\Http\Controllers\Api\BlockchainBoletaController;
 use App\Http\Controllers\Api\QrInstitucionalController;
+use App\Http\Controllers\Api\RfidController; // <-- 1. IMPORTACIÓN AGREGADA AQUÍ
 
 
 // ==========================================
@@ -26,6 +27,10 @@ Route::get('/blockchain/verificar/{hash}', [BlockchainController::class, 'verifi
 Route::get('/blockchain/bloques', [BlockchainController::class, 'bloques']);
 
 Route::apiResource('usuarios', UsuarioController::class);
+
+// <-- 2. RUTAS AGREGADAS AQUÍ
+Route::post('/rfid/registrar-lectura', [RfidController::class, 'registrarLectura']);
+Route::get('/rfid/registros', [RfidController::class, 'historialReciente']);
 
 // ==========================================
 // Rutas Protegidas vía JWT
@@ -83,40 +88,40 @@ Route::middleware('auth:api')->group(function () {
     Route::apiResource('inscripciones', InscripcionController::class);
     Route::patch('/inscripciones/{id}/estado', [InscripcionController::class, 'cambiarEstado']);
     Route::delete('postulantes/{postulanteId}/cancelar-inscripciones', [InscripcionController::class, 'cancelarInscripcionesEstudiante']);
+    
     // Pagos: Métodos especiales + Recurso CRUD completo
     Route::get('/pagos/total-recaudado', [PagoController::class, 'totalRecaudado']);
     Route::post('/pagos/generar-qr', [PagoController::class, 'generarPagoQr']);
     Route::post('/pagos/{id}/confirmar', [PagoController::class, 'confirmarPago']);
     Route::apiResource('pagos', PagoController::class);
 
-    
     // Certificaciones / Diplomas
     Route::apiResource('diplomas', DiplomaController::class)->only(['index', 'store', 'show']);
     
     // Certificados Blockchain
-Route::prefix('blockchain')->group(function () {
-    Route::post('/certificar', [BlockchainController::class, 'certificar']);
-    Route::match(['get', 'post'], '/verificar', [BlockchainController::class, 'verificar']);
-});
+    Route::prefix('blockchain')->group(function () {
+        Route::post('/certificar', [BlockchainController::class, 'certificar']);
+        Route::match(['get', 'post'], '/verificar', [BlockchainController::class, 'verificar']);
+    });
 
-// Boletas de Pago Blockchain
-Route::prefix('blockchain/boletas')->group(function () {
-    Route::post('/certificar', [BlockchainBoletaController::class, 'certificar']);
-    Route::match(['get', 'post'], '/verificar', [BlockchainBoletaController::class, 'verificar']);
-});
+    // Boletas de Pago Blockchain
+    Route::prefix('blockchain/boletas')->group(function () {
+        Route::post('/certificar', [BlockchainBoletaController::class, 'certificar']);
+        Route::match(['get', 'post'], '/verificar', [BlockchainBoletaController::class, 'verificar']);
+    });
 
-// Ruta pública para el estudiante
-Route::get('/qr-institucional/activo', [QrInstitucionalController::class, 'getActivo']);
+    // Ruta pública para el estudiante
+    Route::get('/qr-institucional/activo', [QrInstitucionalController::class, 'getActivo']);
 
-Route::prefix('qr-institucional')->group(function () {
-    Route::get('/', [QrInstitucionalController::class, 'index']);
-    Route::post('/', [QrInstitucionalController::class, 'store']);
-    
-    // Acepta tanto POST como PUT para method spoofing con FormData
-    Route::match(['post', 'put'], '/{id}', [QrInstitucionalController::class, 'update']);
-    
-    Route::patch('/{id}/activar', [QrInstitucionalController::class, 'activar']);
-    Route::delete('/{id}', [QrInstitucionalController::class, 'destroy']);
-});
+    Route::prefix('qr-institucional')->group(function () {
+        Route::get('/', [QrInstitucionalController::class, 'index']);
+        Route::post('/', [QrInstitucionalController::class, 'store']);
+        
+        // Acepta tanto POST como PUT para method spoofing con FormData
+        Route::match(['post', 'put'], '/{id}', [QrInstitucionalController::class, 'update']);
+        
+        Route::patch('/{id}/activar', [QrInstitucionalController::class, 'activar']);
+        Route::delete('/{id}', [QrInstitucionalController::class, 'destroy']);
+    });
    
 });

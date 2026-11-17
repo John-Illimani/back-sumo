@@ -16,7 +16,32 @@ class Usuario extends Authenticatable implements JWTSubject
         'ci', 'celular', 'foto', 'uuid'
     ];
 
-    protected $hidden = ['password'];
+    // Ocultamos 'foto' (binario crudo) para evitar errores de codificación JSON
+    protected $hidden = ['password', 'foto'];
+
+    // Incluimos automáticamente la foto convertida a Base64 en las respuestas JSON
+    protected $appends = ['foto_base64'];
+
+    // Convierte el campo bytea de PostgreSQL a Data URL Base64
+    public function getFotoBase64Attribute()
+    {
+        $foto = $this->attributes['foto'] ?? null;
+
+        if (is_resource($foto)) {
+            // Foto leída desde PostgreSQL (llega como stream)
+            rewind($foto);
+            $foto = stream_get_contents($foto);
+        } elseif (is_string($foto) && strpos($foto, '\\x') === 0) {
+            // Foto recién guardada en esta misma petición (llega en hexadecimal)
+            $foto = hex2bin(substr($foto, 2));
+        }
+
+        if (empty($foto)) {
+            return null;
+        }
+
+        return 'data:image/jpeg;base64,' . base64_encode($foto);
+    }
 
     // Identificador único para el subject del JWT
     public function getJWTIdentifier()

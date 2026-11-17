@@ -11,7 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 use App\Models\VistaCertificadoCompleto;
-use Carbon\Carbon;
+
 class BlockchainController extends Controller
 {
     protected BlockchainService $blockchainService;
@@ -92,7 +92,7 @@ class BlockchainController extends Controller
                 'postulante_id'   => $postulanteId,
                 'ci'              => $ci,
                 'tx_hash'         => $txHashReal,
-                'fecha_emision'   => Carbon::now('America/La_Paz'),
+                'fecha_emision'   => now(),
             ]);
 
             return response()->json([

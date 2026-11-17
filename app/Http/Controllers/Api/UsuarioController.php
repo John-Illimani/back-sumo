@@ -8,8 +8,10 @@ use App\Models\Administrador;
 use App\Models\Secretaria;
 use App\Models\Postulante;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class UsuarioController extends Controller
 {
@@ -29,14 +31,13 @@ class UsuarioController extends Controller
             'apellido' => 'required|string|max:100',
             'ci' => 'required|string|max:20|unique:usuarios,ci',
             'celular' => 'nullable|string|max:20',
-            'foto' => 'nullable',
+            'foto' => 'nullable', // archivo (multipart) o imagen en base64 (JSON)
             // Campos opcionales específicos para tablas hijas si aplican
             'ventanilla_asignada' => 'nullable|string|max:50',
             'turno' => 'nullable|string|max:50',
             'direccion' => 'nullable|string',
             'fecha_nacimiento' => 'nullable|date',
             'uuid' => 'nullable|string|max:50|unique:usuarios,uuid',
-            
         ]);
 
         // 2. Extraer primer nombre y primer apellido limpios (sin espacios ni acentos)
@@ -58,10 +59,13 @@ class UsuarioController extends Controller
         $plainPassword = strtolower($primerNombre) . $ciLimpio . "*";
         $hashedPassword = hash('sha256', $plainPassword);
 
-      $uuid = $request->input('uuid', null);
+        $uuid = $request->input('uuid', null);
+
+        // 5. Procesar la foto (redimensiona y convierte a formato bytea)
+        $fotoBinaria = $this->procesarFoto($request->file('foto') ?? $request->input('foto'));
 
         // 6. Transacción atómica: Inserción en usuarios + tabla hija correspondiente
-        $usuarioCreado = DB::transaction(function () use ($validated, $username, $hashedPassword, $uuid, $request) {
+        $usuarioCreado = DB::transaction(function () use ($validated, $username, $hashedPassword, $uuid, $fotoBinaria, $request) {
             $usuario = Usuario::create([
                 'username' => $username,
                 'password' => $hashedPassword,
@@ -70,7 +74,7 @@ class UsuarioController extends Controller
                 'apellido' => $validated['apellido'],
                 'ci' => $validated['ci'],
                 'celular' => $validated['celular'] ?? null,
-                'foto' => $validated['foto'] ?? null,
+                'foto' => $fotoBinaria,
                 'uuid' => $uuid,
             ]);
 
@@ -127,12 +131,23 @@ class UsuarioController extends Controller
             'ci' => 'sometimes|string|max:20|unique:usuarios,ci,' . $id . ',usuario_id',
             'celular' => 'nullable|string|max:20',
             'uuid' => 'nullable|string|max:50|unique:usuarios,uuid,' . $id . ',usuario_id',
+            'foto' => 'nullable',
+            'eliminar_foto' => 'nullable|boolean',
         ]);
 
         if (!empty($validated['password'])) {
             $validated['password'] = hash('sha256', $validated['password']);
         } else {
             unset($validated['password']);
+        }
+
+        // Foto: solo se toca si llega una nueva o si piden eliminarla
+        unset($validated['foto'], $validated['eliminar_foto']);
+
+        if ($request->boolean('eliminar_foto')) {
+            $validated['foto'] = null;
+        } elseif ($request->hasFile('foto') || $request->filled('foto')) {
+            $validated['foto'] = $this->procesarFoto($request->file('foto') ?? $request->input('foto'));
         }
 
         $usuario->update($validated);
@@ -153,5 +168,56 @@ class UsuarioController extends Controller
             'status' => 'success',
             'message' => 'Usuario eliminado correctamente'
         ]);
+    }
+
+    /**
+     * Recibe una foto (archivo subido o texto base64 / data URL), verifica que sea
+     * una imagen real (JPG, PNG o WEBP) y la devuelve en formato hexadecimal listo
+     * para guardar en una columna bytea de PostgreSQL.
+     *
+     * No requiere la extensión GD de PHP: el frontend ya reduce la foto a 400 px
+     * y la comprime a JPEG antes de enviarla.
+     */
+    private function procesarFoto($foto): ?string
+    {
+        if (empty($foto)) {
+            return null;
+        }
+
+        // 1. Obtener los bytes de la imagen
+        if ($foto instanceof UploadedFile) {
+            $binario = file_get_contents($foto->getRealPath());
+        } elseif (is_string($foto)) {
+            $limpio = preg_replace('#^data:image/[a-zA-Z0-9.+-]+;base64,#', '', $foto);
+            $binario = base64_decode($limpio, true);
+        } else {
+            $binario = false;
+        }
+
+        if ($binario === false || $binario === '') {
+            throw ValidationException::withMessages([
+                'foto' => 'La foto no es válida.'
+            ]);
+        }
+
+        // 2. Limitar el tamaño (la foto ya llega comprimida, normalmente 20 a 60 KB)
+        if (strlen($binario) > 2 * 1024 * 1024) {
+            throw ValidationException::withMessages([
+                'foto' => 'La foto supera los 2 MB. Elija una imagen más liviana.'
+            ]);
+        }
+
+        // 3. Verificar que realmente sea una imagen (no depende de GD)
+        $info = @getimagesizefromstring($binario);
+        $permitidos = ['image/jpeg', 'image/png', 'image/webp'];
+
+        if ($info === false || !in_array($info['mime'], $permitidos, true)) {
+            throw ValidationException::withMessages([
+                'foto' => 'El archivo no es una imagen válida (use JPG, PNG o WEBP).'
+            ]);
+        }
+
+        // 4. Formato hexadecimal que PostgreSQL entiende como bytea
+        return '\\x' . bin2hex($binario);
     }
 }
